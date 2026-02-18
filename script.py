@@ -1,117 +1,78 @@
-import time
+import json
 import os
-
-import requests
-import requests.auth
+import time
 
 from dotenv import load_dotenv
+
+import connect
 
 load_dotenv()
 
 AGENT_NAME = f"personal-bot/0.1 by {os.environ['REDDIT_USERNAME']}"
-BASE_URL = 'https://oauth.reddit.com'
-USER = os.environ['REDDIT_USERNAME']
-
-
-class Connection:
-    def __init__(self):
-        self.agent_name = f"personal-bot/0.1 by {os.environ['REDDIT_USERNAME']}"
-        self.rate_limit_remaining = None
-        self.rate_limit_used = None
-        self.rate_limit_reset = None
-        self.token = self.get_token()
-        self.last_request_response = None
-        self.headers = {"Authorization": f"bearer {self.token}", "User-Agent": AGENT_NAME}
-
-    def __str__(self):
-        try:
-            return f"{self.agent_name=}, {self.token=}, {self.last_request_response=}, " \
-                   f"{self.rate_limit_used=}, {self.rate_limit_remaining=}, {self.rate_limit_reset=}"
-        except AttributeError as e:
-            print(e)
-            return f"{self.agent_name=}"
-
-    def get_token(self):
-        client_auth = requests.auth.HTTPBasicAuth(
-            os.environ['CLIENT_ID'],
-            os.environ['CLIENT_SECRET']
-        )
-        post_data = {
-            "grant_type": "password",
-            "username": os.environ['REDDIT_USERNAME'],
-            "password": os.environ['REDDIT_PASSWORD']
-        }
-        headers = {"User-Agent": self.agent_name}
-        response = self.post_request(
-            url="https://www.reddit.com/api/v1/access_token",
-            auth=client_auth,
-            data=post_data,
-            headers=headers,
-        )
-        return response.json().get('access_token')
-
-    def update_connection(self):
-        self.rate_limit_remaining = int(float(self.last_request_response.headers.get('x-ratelimit-remaining', -1)))
-        self.rate_limit_reset = int(float(self.last_request_response.headers.get('x-ratelimit-reset', 600)))
-        self.rate_limit_used = int(float(self.last_request_response.headers.get('x-ratelimit-used')))
-
-    def is_request_allowed(self):
-        if self.rate_limit_remaining is not None and self.rate_limit_remaining <= 0:
-            sleep_time = self.rate_limit_reset
-            print(f'{sleep_time=}')
-            time.sleep(sleep_time)
-
-    def before_request(self):
-        self.is_request_allowed()
-
-    def after_request(self, response):
-        self.last_request_response = response
-        self.update_connection()
-        if self.last_request_response.status_code != 200:
-            exit(f'ERROR: Status code != 200. {self.__str__()}. {self.last_request_response.headers}')
-        print(self.__str__())
-
-    def post_request(self, **kwargs):
-        self.before_request()
-        response = requests.post(**kwargs)
-        self.after_request(response)
-        return response
-
-    def get_request(self, **kwargs):
-        self.before_request()
-        response = requests.get(**kwargs)
-        self.after_request(response)
-        return response
-
-
-conn = Connection()
+BASE_URL = "https://oauth.reddit.com"
+USER = os.environ["REDDIT_USERNAME"]
 
 
 def get_ids_from_response(response):
-    ids = list()
-    children = response.json().get('data', {}).get('children', [])
+    keep = [
+        "id",
+        "permalink",
+        "score",
+        "created_utc",
+        "subreddit",
+    ]
+    info_list = list()
+    children = response.json().get("data", {}).get("children", [])
     for child in children:
-        id_ = child.get('data', {}).get('id')
-        ids.append(id_)
-    return ids
+        info = {k: child.get("data")[k] for k in keep}
+        post_id = info["permalink"].split("/")[4]
+        age_seconds = int(time.time()) - info["created_utc"]
+
+        # Keep certain posts/comments if they match criteria.
+        if (
+            info["subreddit"] in FILTERS["exclude_subreddits"]
+            or info["id"] in FILTERS["exclude_post_ids"]
+            or info["id"] in FILTERS["exclude_comment_ids"]
+            # keep comments for posts which are kept.
+            or post_id in FILTERS["exclude_post_ids"]
+            or (
+                FILTERS["exclude_score_above"] is not None
+                and info["score"] > FILTERS["exclude_score_above"]
+            )
+            or (
+                FILTERS["exclude_older_than"] is not None
+                and age_seconds > FILTERS["exclude_older_than"]
+            )
+            or (
+                FILTERS["exclude_younger_than"] is not None
+                and age_seconds < FILTERS["exclude_younger_than"]
+            )
+        ):
+            print("skip", info)
+            continue
+        else:
+            info_list.append(info["id"])
+
+    return info_list
 
 
-def get_comments(user):
+def get_comments_and_posts(user):
+    """This retrieves comments AND posts."""
     params = {
         "limit": 100,
     }
-    url = f"{BASE_URL}/user/{user}/comments"
+    url = f"{BASE_URL}/user/{user}"
     response = conn.get_request(url=url, params=params, headers=conn.headers)
     return get_ids_from_response(response)
 
 
-def editusertext(thing_id, new_text='.', is_post=False):
+def editusertext(thing_id, new_text="deleted", is_post=False):
     data = {
-        'thing_id': f't3_{thing_id}' if is_post else f't1_{thing_id}',
-        'text': new_text,
+        "thing_id": f"t3_{thing_id}" if is_post else f"t1_{thing_id}",
+        "text": new_text,
     }
     url = f"{BASE_URL}/api/editusertext"
-    print(f'EDIT: {thing_id=}')
+    print(f"EDIT: {thing_id=}")
     conn.post_request(url=url, data=data, headers=conn.headers)
 
 
@@ -122,10 +83,10 @@ def editusertexts(thing_ids, is_post=False):
 
 def delete_thing_id(thing_id, is_post=False):
     data = {
-        'id': f't3_{thing_id}' if is_post else f't1_{thing_id}',
+        "id": f"t3_{thing_id}" if is_post else f"t1_{thing_id}",
     }
     url = f"{BASE_URL}/api/del"
-    print(f'DELETE: {thing_id=}')
+    print(f"DELETE: {thing_id=}")
     conn.post_request(url=url, data=data, headers=conn.headers)
 
 
@@ -141,18 +102,24 @@ def get_posts(user):
 
 
 def main():
-    comment_ids = get_comments(user=USER)
-    while comment_ids:
-        editusertexts(comment_ids)
-        delete_thing_ids(comment_ids)
-        comment_ids = get_comments(user=USER)
-
     post_ids = get_posts(user=USER)
     while post_ids:
         editusertexts(post_ids, is_post=True)
         delete_thing_ids(post_ids, is_post=True)
         post_ids = get_posts(user=USER)
 
+    comment_ids = get_comments_and_posts(user=USER)
+    while comment_ids:
+        editusertexts(comment_ids)
+        delete_thing_ids(comment_ids)
+        comment_ids = get_comments_and_posts(user=USER)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
+    conn = connect.Connection()
+
+    # Keep certain posts/comments by defining filters.
+    with open("filters.json", "r") as f:
+        FILTERS = json.load(f)
+
     main()

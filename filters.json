@@ -1,0 +1,8 @@
+{
+    "exclude_subreddits": [],
+    "exclude_older_than": null,
+    "exclude_younger_than": null,
+    "exclude_post_ids": [],
+    "exclude_comment_ids": [],
+    "exclude_score_above": null
+}

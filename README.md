@@ -2,11 +2,16 @@
 
 This script removes all your Reddit posts and comments. 
 
+Optionally keep items based on:
+- time
+- upvotes
+- subreddit
+- id
+
 
 ## Instructions
 
-1. Create virtual environment: `python -m venv myenv` and activate it `myenv\Scripts\activate`
-1. Install requirements `pip install -r requirements.txt`
+1. Install packages using `uv` or `pip`.
 1. Register your personal Reddit app
     - [Reddit](https://ssl.reddit.com/prefs/apps/)
         - choose a name (not important)
@@ -15,7 +20,8 @@ This script removes all your Reddit posts and comments.
 1. Modify environment variables
     - rename `.env_example` to `.env`
     - replace values in `.env` with your real values
-1. Run script: `python script.py`
+1. Optionally set filters in `filters.json` to keep items.
+1. Run script: `script.py`
     - This may take a while depending on how many posts and comments you have. Reddit only allows for 60 requests per minute.
 
 
